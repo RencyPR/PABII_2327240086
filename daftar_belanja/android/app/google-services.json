@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1030286618097",
+    "firebase_url": "https://daftarbelanja-db53c-default-rtdb.firebaseio.com",
+    "project_id": "daftarbelanja-db53c",
+    "storage_bucket": "daftarbelanja-db53c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1030286618097:android:c40602caa1c2ad4b266850",
+        "android_client_info": {
+          "package_name": "com.example.daftar_belanja"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-OZUfFyw3RZoJsjrmteud8oe4Kh1AjsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
