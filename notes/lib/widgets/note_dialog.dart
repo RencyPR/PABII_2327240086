@@ -1,11 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:notes/models/note.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class NoteDialog extends StatefulWidget {
-  final Note? note; // null = add mode, non-null = edit mode
+  final Note? note;
 
   const NoteDialog({super.key, this.note});
 
@@ -17,9 +19,12 @@ class _NoteDialogState extends State<NoteDialog> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _titleController;
   late TextEditingController _descriptionController;
+
   String? _imageBase64;
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = false;
+  double? _latitude;
+  double? _longitude;
 
   @override
   void initState() {
@@ -28,6 +33,8 @@ class _NoteDialogState extends State<NoteDialog> {
     _descriptionController =
         TextEditingController(text: widget.note?.description ?? '');
     _imageBase64 = widget.note?.imageBase64;
+    _latitude = widget.note?.latitude;
+    _longitude = widget.note?.longitude;
   }
 
   @override
@@ -37,10 +44,10 @@ class _NoteDialogState extends State<NoteDialog> {
     super.dispose();
   }
 
-  /// Pick an image from gallery and convert to base64
+  /// ================= IMAGE =================
   Future<void> _pickImage() async {
     try {
-      final XFile? pickedFile = await _picker.pickImage(
+      final pickedFile = await _picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 800,
         maxHeight: 800,
@@ -51,231 +58,204 @@ class _NoteDialogState extends State<NoteDialog> {
         setState(() => _isLoading = true);
 
         final bytes = await pickedFile.readAsBytes();
-        final base64String = base64Encode(bytes);
+        _imageBase64 = base64Encode(bytes);
 
-        setState(() {
-          _imageBase64 = base64String;
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal memilih gambar: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal memilih gambar: $e')),
+      );
     }
   }
 
-  /// Remove the currently selected image
   void _removeImage() {
     setState(() => _imageBase64 = null);
   }
 
+  /// ================= LOCATION =================
+  Future<void> _getLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Layanan lokasi mati")),
+        );
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Izin lokasi ditolak")),
+          );
+          return;
+        }
+      }
+
+      final position = await Geolocator.getCurrentPosition();
+
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+      });
+    } catch (e) {
+      debugPrint("Error lokasi: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Gagal ambil lokasi")),
+      );
+    }
+  }
+
+  Future<void> _openMap() async {
+    if (_latitude == null || _longitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Lokasi belum tersedia")),
+      );
+      return;
+    }
+
+    final url =
+        'https://www.google.com/maps/search/?api=1&query=$_latitude,$_longitude';
+
+    final uri = Uri.parse(url);
+    final success = await launchUrl(uri,
+        mode: LaunchMode.externalApplication);
+
+    if (!success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Gagal buka maps")),
+      );
+    }
+  }
+
+  /// ================= UI =================
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.note != null;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 500),
-        padding: const EdgeInsets.all(24),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
         child: SingleChildScrollView(
           child: Form(
             key: _formKey,
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Dialog Title
+                Text(
+                  isEditing ? "Edit Note" : "Add Note",
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+
+                const SizedBox(height: 16),
+
+                /// TITLE
+                TextFormField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(labelText: "Title"),
+                  validator: (v) =>
+                      v!.isEmpty ? "Tidak boleh kosong" : null,
+                ),
+
+                const SizedBox(height: 10),
+
+                /// DESC
+                TextFormField(
+                  controller: _descriptionController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: "Description"),
+                  validator: (v) =>
+                      v!.isEmpty ? "Tidak boleh kosong" : null,
+                ),
+
+                const SizedBox(height: 16),
+
+                /// IMAGE
+                if (_isLoading)
+                  const CircularProgressIndicator()
+                else if (_imageBase64 != null)
+                  Column(
+                    children: [
+                      Image.memory(base64Decode(_imageBase64!),
+                          height: 150),
+                      TextButton(
+                          onPressed: _removeImage,
+                          child: const Text("Hapus gambar"))
+                    ],
+                  )
+                else
+                  ElevatedButton(
+                      onPressed: _pickImage,
+                      child: const Text("Tambah Gambar")),
+
+                const SizedBox(height: 16),
+
+                /// LOCATION BUTTON
                 Row(
                   children: [
-                    Icon(
-                      isEditing ? Icons.edit_note : Icons.note_add,
-                      color: Colors.deepPurple,
-                      size: 28,
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _getLocation,
+                        icon: const Icon(Icons.my_location),
+                        label: const Text("Ambil Lokasi"),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      isEditing ? 'Edit Note' : 'Add Note',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _openMap,
+                        icon: const Icon(Icons.map),
+                        label: const Text("Maps"),
                       ),
                     ),
                   ],
                 ),
+
+                /// SHOW COORD
+                if (_latitude != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                        "Lat: $_latitude, Lng: $_longitude"),
+                  ),
+
                 const SizedBox(height: 20),
 
-                // Title Field
-                TextFormField(
-                  controller: _titleController,
-                  decoration: InputDecoration(
-                    labelText: 'Title',
-                    prefixIcon: const Icon(Icons.title),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey.shade50,
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Title tidak boleh kosong';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Description Field
-                TextFormField(
-                  controller: _descriptionController,
-                  maxLines: 4,
-                  decoration: InputDecoration(
-                    labelText: 'Description',
-                    prefixIcon: const Padding(
-                      padding: EdgeInsets.only(bottom: 60),
-                      child: Icon(Icons.description),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey.shade50,
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Description tidak boleh kosong';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Image Section
-                if (_isLoading)
-                  const Center(child: CircularProgressIndicator())
-                else if (_imageBase64 != null)
-                  Stack(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.memory(
-                          base64Decode(_imageBase64!),
-                          height: 180,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: GestureDetector(
-                          onTap: _removeImage,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.close,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                else
-                  InkWell(
-                    onTap: _pickImage,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      height: 120,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Colors.grey.shade300,
-                          width: 2,
-                          style: BorderStyle.solid,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        color: Colors.grey.shade50,
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.add_photo_alternate_outlined,
-                            size: 40,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Tap to add image',
-                            style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                if (_imageBase64 != null) ...[
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: _pickImage,
-                    icon: const Icon(Icons.swap_horiz),
-                    label: const Text('Change Image'),
-                  ),
-                ],
-
-                const SizedBox(height: 24),
-
-                // Action Buttons
+                /// ACTION BUTTON
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text("Cancel")),
+                    ElevatedButton(
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
                           final note = Note(
                             id: widget.note?.id,
                             title: _titleController.text.trim(),
-                            description: _descriptionController.text.trim(),
+                            description:
+                                _descriptionController.text.trim(),
                             imageBase64: _imageBase64,
-                            createdAt: widget.note?.createdAt ?? DateTime.now(),
+                            createdAt: widget.note?.createdAt ??
+                                DateTime.now(),
+                            latitude: _latitude,   // ✅ FIX
+                            longitude: _longitude, // ✅ FIX
                           );
-                          Navigator.of(context).pop(note);
+
+                          Navigator.pop(context, note);
                         }
                       },
-                      icon: Icon(isEditing ? Icons.save : Icons.add),
-                      label: Text(isEditing ? 'Save' : 'Add'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
+                      child: Text(isEditing ? "Save" : "Add"),
+                    )
                   ],
-                ),
+                )
               ],
             ),
           ),

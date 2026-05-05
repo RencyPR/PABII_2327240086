@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart'; // ✅ tambah ini
 import 'package:notes/models/note.dart';
 import 'package:notes/services/note_service.dart';
 import 'package:notes/widgets/note_dialog.dart';
@@ -15,7 +16,23 @@ class NoteListScreen extends StatefulWidget {
 class _NoteListScreenState extends State<NoteListScreen> {
   final NoteService _noteService = NoteService();
 
-  /// Show dialog to add a new note
+  /// ================= MAP =================
+  Future<void> _openMap(double lat, double lng) async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+    );
+
+    final success =
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+    if (!success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Gagal membuka Google Maps")),
+      );
+    }
+  }
+
+  /// ================= ADD =================
   Future<void> _addNote() async {
     final note = await showDialog<Note>(
       context: context,
@@ -23,30 +40,11 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
 
     if (note != null) {
-      try {
-        await _noteService.addNote(note);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Note berhasil ditambahkan'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Gagal menambahkan note: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      await _noteService.addNote(note);
     }
   }
 
-  /// Show dialog to edit an existing note
+  /// ================= EDIT =================
   Future<void> _editNote(Note note) async {
     final updatedNote = await showDialog<Note>(
       context: context,
@@ -54,234 +52,75 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
 
     if (updatedNote != null) {
-      try {
-        await _noteService.updateNote(updatedNote);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Note berhasil diupdate'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Gagal mengupdate note: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      await _noteService.updateNote(updatedNote);
     }
   }
 
-  /// Show confirmation dialog and delete a note
+  /// ================= DELETE =================
   Future<void> _deleteNote(Note note) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Hapus Note'),
-        content: Text('Apakah Anda yakin ingin menghapus "${note.title}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Hapus'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true && note.id != null) {
-      try {
-        await _noteService.deleteNote(note.id!);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Note berhasil dihapus'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Gagal menghapus note: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+    if (note.id != null) {
+      await _noteService.deleteNote(note.id!);
     }
   }
 
-  /// Format date to readable string
+  /// ================= FORMAT DATE =================
   String _formatDate(DateTime date) {
-    final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}, '
-        '${date.hour.toString().padLeft(2, '0')}:'
-        '${date.minute.toString().padLeft(2, '0')}';
+    return "${date.day}/${date.month}/${date.year}";
   }
 
+  /// ================= UI =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.sticky_note_2, color: Colors.white),
-            SizedBox(width: 8),
-            Text('My Notes'),
-          ],
-        ),
+        title: const Text("My Notes"),
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
-        elevation: 0,
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.deepPurple.shade50,
-              Colors.white,
-            ],
-          ),
-        ),
-        child: StreamBuilder<List<Note>>(
-          stream: _noteService.getNotes(),
-          builder: (context, snapshot) {
-            // Loading state
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+      body: StreamBuilder<List<Note>>(
+        stream: _noteService.getNotes(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-            // Error state
-            if (snapshot.hasError) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Terjadi kesalahan',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${snapshot.error}',
-                      style: TextStyle(color: Colors.grey.shade500),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              );
-            }
+          final notes = snapshot.data!;
 
-            final notes = snapshot.data ?? [];
+          if (notes.isEmpty) {
+            return const Center(child: Text("Belum ada note"));
+          }
 
-            // Empty state
-            if (notes.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.note_add_outlined,
-                      size: 80,
-                      color: Colors.deepPurple.shade200,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Belum ada catatan',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Tekan tombol + untuk menambahkan catatan',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade400,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            // Notes list
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: notes.length,
-              itemBuilder: (context, index) {
-                final note = notes[index];
-                return _buildNoteCard(note);
-              },
-            );
-          },
-        ),
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: notes.length,
+            itemBuilder: (context, index) {
+              final note = notes[index];
+              return _buildNoteCard(note);
+            },
+          );
+        },
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _addNote,
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
         child: const Icon(Icons.add),
       ),
     );
   }
 
-  /// Build a single note card
+  /// ================= CARD =================
   Widget _buildNoteCard(Note note) {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Image (if available)
+          /// IMAGE
           if (note.imageBase64 != null && note.imageBase64!.isNotEmpty)
-            ClipRRect(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
-              child: Image.memory(
-                base64Decode(note.imageBase64!),
-                height: 200,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    height: 100,
-                    color: Colors.grey.shade200,
-                    child: const Center(
-                      child: Icon(Icons.broken_image, color: Colors.grey),
-                    ),
-                  );
-                },
-              ),
+            Image.memory(
+              base64Decode(note.imageBase64!),
+              height: 200,
+              width: double.infinity,
+              fit: BoxFit.cover,
             ),
 
           Padding(
@@ -289,7 +128,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title
+                /// TITLE
                 Text(
                   note.title,
                   style: const TextStyle(
@@ -297,62 +136,60 @@ class _NoteListScreenState extends State<NoteListScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+
                 const SizedBox(height: 8),
 
-                // Description
-                Text(
-                  note.description,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade700,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 12),
+                /// DESC
+                Text(note.description),
 
-                // Footer: date + action buttons
+                const SizedBox(height: 10),
+
+                /// ✅ LOKASI (FIX UTAMA DI SINI)
+                if (note.latitude != null && note.longitude != null)
+                  InkWell(
+                    onTap: () =>
+                        _openMap(note.latitude!, note.longitude!),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on,
+                            size: 16, color: Colors.red),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            "${note.latitude}, ${note.longitude}",
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                const SizedBox(height: 10),
+
+                /// DATE + ACTION
                 Row(
                   children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 14,
-                      color: Colors.grey.shade400,
-                    ),
-                    const SizedBox(width: 4),
                     Text(
                       _formatDate(note.createdAt),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade400,
-                      ),
+                      style: const TextStyle(fontSize: 12),
                     ),
                     const Spacer(),
-                    // Edit Button
                     IconButton(
                       onPressed: () => _editNote(note),
-                      icon: const Icon(Icons.edit_outlined),
-                      color: Colors.deepPurple,
-                      iconSize: 20,
-                      tooltip: 'Edit',
-                      constraints: const BoxConstraints(),
-                      padding: const EdgeInsets.all(8),
+                      icon: const Icon(Icons.edit),
                     ),
-                    const SizedBox(width: 4),
-                    // Delete Button
                     IconButton(
                       onPressed: () => _deleteNote(note),
-                      icon: const Icon(Icons.delete_outline),
-                      color: Colors.red,
-                      iconSize: 20,
-                      tooltip: 'Hapus',
-                      constraints: const BoxConstraints(),
-                      padding: const EdgeInsets.all(8),
+                      icon: const Icon(Icons.delete),
                     ),
                   ],
-                ),
+                )
               ],
             ),
-          ),
+          )
         ],
       ),
     );
